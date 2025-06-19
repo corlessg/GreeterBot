@@ -1,4 +1,5 @@
 #include<opencv2/opencv.hpp>
+#include<opencv2/dnn.hpp>
 #include<iostream>
 
 
@@ -11,43 +12,52 @@ bool isWaving(const std::deque<int>& x_positions) {
 	return (maxX - minX > 100); // adjust threshold based on 
 }
 
+cv::Point getKeypoint(const cv::Mat& heatmap) {
+	double maxVal;
+	cv::Point maxLoc;
+	cv::minMaxLoc(heatmap, nullptr, &maxVal, nullptr, &maxLoc);
+	return maxLoc;
+}
+
 void model_testing(const cv::Mat& frame) {
 	try {
-		cv::dnn::Net net = cv::dnn::readNetFromONNX("E:/documents/projects/c++/slnGreeterBot/GreeterBot/models/MediaPipeHandDetector.onnx");
+		cv::dnn::Net net = cv::dnn::readNetFromONNX("E:/documents/projects/c++/slnGreeterBot/GreeterBot/models/RTMPose_Body2d.onnx");
 
-		cv::Mat blob = cv::dnn::blobFromImage(frame, 1.0 / 255.0, cv::Size(640, 640));
+		net.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
+		net.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
+
+
+		cv::Mat blob = cv::dnn::blobFromImage(frame, 1.0 / 255.0, cv::Size(256, 192));
 		net.setInput(blob);
-		cv::Mat output = net.forward();
 
-		cv::imshow("test circles", frame);
+		std::vector<cv::Mat> outs;
 
-		const int w = frame.cols;
-		const int h = frame.rows;
+		net.forward(outs, net.getUnconnectedOutLayersNames());
 
-		cv::Mat flat = output.reshape(1, 1);
+		cv::Mat heatmaps = outs[0];
 
-		float x, y, z;
-		int x_px, y_py;;
 
-		//parse each of the values coming out from the output reshaped
-		for (int i = 0; i < flat.cols; i += 3) {
-			x = flat.at<float>(0, i);
-			y = flat.at<float>(0, i);
-			z = flat.at<float>(0, i);
-
-			x_px = static_cast<int>(x * w);
-			y_py = static_cast<int>(y * h);
-
-			cv::circle(frame, cv::Point(x_px, y_py), 3, cv::Scalar(0, 255, 0), -1);
+		std::cout << "dims: " << heatmaps.dims << "\n";
+		for (int i = 0; i < heatmaps.dims; ++i) {
+			std::cout << "size[" << i << "] = " << heatmaps.size[i] << "\n";
 		}
 
-		cv::imshow("test circles",frame);
+		int J = heatmaps.size[1];
+		int Hm = heatmaps.size[2], Wm = heatmaps.size[3];
+		float sx = float(frame.cols) / Wm;
+		float sy = float(frame.rows) / Hm;
+
+		for (int j = 0; j < J; ++j) {
+			cv::Mat hm(Hm, Wm, CV_32F, heatmaps.ptr(0, j));
+			cv::Point p = getKeypoint(hm);
+			cv::circle(frame, { int(p.x * sx), int(p.y * sy) }, 3, { 0,255,0 }, -1);
+		}
+
+		cv::Mat output = net.forward();
+
+		cv::imshow("RTMPose keypoints", frame);
+		cv::waitKey(0);
 		
-
-		x = 0;
-
-
-
 	}
 	catch (const cv::Exception& e) {
 		std::cerr << "OpenCV exception: " << e.what() << "\n";
@@ -141,12 +151,16 @@ int main() {
 
 	cv::Mat test_frame;
 
-	test_frame = cv::imread("../GreeterBot/data/WIN_20250601_22_14_41_Pro.jpg");
-	while (true) {
+	test_frame = cv::imread("../GreeterBot/data/WIN_20250601_22_14_53_Pro.jpg");
+	if (test_frame.empty()) {
+		std::cerr << "ERROR: Could not load image. Check file path!\n";
+		return -1;
+	}
+	//while (true) {
 		cv::imshow("test", test_frame);
 		model_testing(test_frame);
-		if (cv::waitKey(1) == 'q') break;
-	}
+		/*if (cv::waitKey(1) == 'q') break;*/
+	//}
 	
 
 
